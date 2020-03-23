@@ -13,16 +13,24 @@ function main(){
 		var imagePaths = inputWindow();
 		var progressWindow = createProgressPalette();
 		textLayerName = addAllTextToLayer(myDoc,textLayerName,progressWindow);
-		addAllNonTextToLayer(myDoc,backgroundLayerName,textLayerName,progressWindow);
-		if (setLayerVisibilityFalse(myDoc,textLayerName)===0){exit();}
+		backgroundLayerName = addAllNonTextToLayer(myDoc,backgroundLayerName,textLayerName,progressWindow);
+		if (setLayerVisibilityFalse(myDoc,textLayerName,progressWindow)===0){exit();}
 		//insert # of pages to the beginning of page list
 		insertPages(myDoc,numberOfPagesInserted,true,progressWindow);
 		//insert # of pages to the end of page list
 		insertPages(myDoc,numberOfPagesInserted,false,progressWindow);
+		//Adds image to first page of pagelist from the image path provided
 		addCoverImage(myDoc,imagePaths,progressWindow);
+		//Adds image to last page of pagelist from the image path provided
 		addBackCoverImage(myDoc,imagePaths,progressWindow);
-		if(imagePaths.endsheetPath){addEndsheetImages(myDoc,imagePaths,progressWindow);}
-		//exportBackgroundImages (myDoc);
+		//If endsheets were entered adds endsheet image to second page and second from last page
+		if(imagePaths.endsheetPath){
+			if (numberOfPagesInserted>1){addEndsheetImages(myDoc,imagePaths,progressWindow);}
+		}
+		var imageList = exportBackgroundImages (myDoc,progressWindow);
+		removeItemsFromNonTextLayer(myDoc,backgroundLayerName,progressWindow);
+		placeImages(myDoc,imageList,progressWindow);
+		setLayerVisibilityTrue(myDoc,textLayerName,progressWindow);
 		alert("Process Complete");
 		progressWindow.close();		
 	}else{
@@ -93,13 +101,13 @@ function inputWindow(){
 }
 
 function createProgressPalette(){
-	var myProgressPalette = new Window("palette", "Progress", [50,50,600,400], {closeButton: false});
+	var myProgressPalette = new Window("palette", "Progress", [50,50,600,500], {closeButton: false});
 	with (myProgressPalette) {
 		orientation = "Left";
 		alignment = "Left";
 		alignChildren = "Left";
 	}
-	myProgressPalette["processStatus"] = myProgressPalette.add("statictext",[20,20,550,380],"",{multiline:true});
+	myProgressPalette["processStatus"] = myProgressPalette.add("statictext",[20,20,550,460],"",{multiline:true});
 	myProgressPalette.show();
 	return myProgressPalette;
 }
@@ -138,6 +146,7 @@ function addAllNonTextToLayer(myDoc,backgroundLayerName,textLayerName,progressWi
 	myLayer.merge(selArr);
 	myLayer.move(LocationOptions.AT_END);
 	progressWindow.processStatus.text += "All found background objects to layer "+ myLayer.name + "\r\n";
+	return myLayer.name;
 }
 //Moves text frame from a story object to a layer
 function moveStoryToLayer(myStory,myLayer){
@@ -178,10 +187,11 @@ function GetLayer(myDoc,name){
 
 }
 //Set layer visibility to false. Returns 1 = success, 0 = failure
-function setLayerVisibilityFalse(myDoc,name){
+function setLayerVisibilityFalse(myDoc,name,progressWindow){
 	myLayer = myDoc.layers.item(name);
 	if(myLayer.isValid){
 		myLayer.visible = false;
+		progressWindow.processStatus.text += "Layer " + name + " visibility set to false\r\n";
 		return 1;
 	} else {
 		alert("Set Layer Visibility FALSE Error\nNo layer named " + name + " was found.");
@@ -189,15 +199,24 @@ function setLayerVisibilityFalse(myDoc,name){
 	}
 }
 //Set layer visibility to true. Returns 1 = success, 0 = failure
-function setLayerVisibilityTrue(myDoc,name){
+function setLayerVisibilityTrue(myDoc,name,progressWindow){
 	myLayer = myDoc.layers.item(name);
 	if(myLayer.isValid){
 		myLayer.visible = true;
+		progressWindow.processStatus.text += "Layer " + name + " visibility set to true\r\n";
 		return 1;
 	} else {
 		alert("Set Layer Visibility TRUE Error\nNo layer named " + name + " was found.");
 		return 0;
 	}
+}
+//Remove all items from layer of given name
+function removeItemsFromNonTextLayer(myDoc,backgroundLayerName,progressWindow){
+	var backgroundLayer = myDoc.layers.item(backgroundLayerName);
+	backgroundLayer.remove();
+	backgroundLayer = myDoc.layers.add({name:backgroundLayerName})
+	backgroundLayer.move(LocationOptions.AT_END);
+	progressWindow.processStatus.text += "All items cleared from layer " + backgroundLayerName + "\r\n";
 }
 
 ///..................................................
@@ -207,7 +226,12 @@ function setLayerVisibilityTrue(myDoc,name){
 //Insert # of pages at the beginning or end of page list
 function insertPages(myDoc,numberOfPagesInserted,boolInsertBefore,progressWindow){
 	if (boolInsertBefore===true){
+		for (var p = 0; p < myDoc.spreads.length; p++){
+			myDoc.spreads.item(p).allowPageShuffle = false;
+		}
 		var pageRef = myDoc.pages.item(0);
+		var pageRefSpread = pageRef.parent;
+		pageRefSpread.allowPageShuffle = true;
 		for (var x = 0; x < numberOfPagesInserted; x++){
 			var addedPage = myDoc.pages.add(LocationOptions.AT_BEGINNING, pageRef);
 		}
@@ -317,13 +341,15 @@ function addEndsheetImages(myDoc,imagePaths,progressWindow){
 	}
 }
 //Export each page as a JPG into a directory
-function exportBackgroundImages (myDoc) {
+function exportBackgroundImages (myDoc,progressWindow) {
 	//Create directory for images
 	var myImagesFolder = new Folder(myDoc.filePath + "/_fixed_layout_images");
+	var processStatusLog = progressWindow.processStatus.text;
 	if (!myImagesFolder.exists) {
 		myImagesFolder.create();
 	}
 	//Assign pages to array
+	var imageList = [];
 	var pageList = myDoc.pages.everyItem().getElements();
 	//Loop through pages for export
 	for (var x = 0; x < pageList.length; x++){
@@ -341,8 +367,43 @@ function exportBackgroundImages (myDoc) {
 				jpegRenderingStyle = JPEGOptionsFormat.BASELINE_ENCODING; // The rendering style: BASELINE_ENCODING or PROGRESSIVE_ENCODING
 				simulateOverprint = false; // If true, simulates the effects of overprinting spot and process colors in the same way they would occur when printing
 				useDocumentBleeds = false; // If true, uses the document's bleed settings in the exported JPEG.
-			}
+		}
 		//Export Images
+		progressWindow.processStatus.text = processStatusLog + "Exporting page " + pageList[x].name + " to /_fixed_layout_images/" + pageList[x].name + ".jpg...";
 		myDoc.exportFile(ExportFormat.JPG, imagePathName, false);
+		imageList.push({
+			path:imagePathName,
+			name:pageList[x].name
+		})
 	}
+	progressWindow.processStatus.text = processStatusLog + "Pages exported to /_fixed_layout_images/\r\n";
+	return imageList;
+}
+//Place images onto pages with same name
+function placeImages(myDoc,imageList,progressWindow){
+	var processStatusLog = progressWindow.processStatus.text;
+	var myHeight = myDoc.documentPreferences.pageHeight;
+	var myWidth = myDoc.documentPreferences.pageWidth;
+	for (var x = 0; x < imageList.length; x++){
+		var targetPage = myDoc.pages.item(imageList[x].name);
+		var targetPageBounds = targetPage.bounds;
+		progressWindow.processStatus.text = processStatusLog + "Creating frame for page " + imageList[x].name + "...";
+		var targetFrame = targetPage.rectangles.add({
+			geometricBounds:[0, 0, myHeight, myWidth],
+			topLeftCornerOption:CornerOptions.NONE,
+			topRightCornerOption:CornerOptions.NONE,
+			bottomLeftCornerOption:CornerOptions.NONE,
+			bottomRightCornerOption:CornerOptions.NONE
+		})
+		targetFrame.move(undefined,[targetPageBounds[1],0]);
+		if (!targetFrame.isValid){
+		alert("Failed to create image frame for page " + targetPage.name);
+		exit();
+		} else {
+			progressWindow.processStatus.text = processStatusLog + "Placing image for page " + imageList[x].name + "...";
+			targetFrame.place(imageList[x].path);
+			targetFrame.fit(FitOptions.FILL_PROPORTIONALLY);
+		}
+	}
+	progressWindow.processStatus.text = processStatusLog + "Created frames for each page and placed images\r\n";
 }
